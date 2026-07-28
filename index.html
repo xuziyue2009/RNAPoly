@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RNA 聚合酶 — 4K 音游</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ============ SVG DEFS (all hand-written art assets) ============ -->
+  <svg style="display:none" id="svg-defs" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <!-- Gradients -->
+      <radialGradient id="bg-grad" cx="50%" cy="50%">
+        <stop offset="0%" stop-color="#1a1a4e"/>
+        <stop offset="100%" stop-color="#06061a"/>
+      </radialGradient>
+      <linearGradient id="pol-grad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#5b4fa8"/>
+        <stop offset="50%" stop-color="#3d3182"/>
+        <stop offset="100%" stop-color="#2a1f5e"/>
+      </linearGradient>
+      <linearGradient id="pol-jaw-top" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#4a3d90"/>
+        <stop offset="100%" stop-color="#6b5fc0"/>
+      </linearGradient>
+      <linearGradient id="pol-jaw-bot" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#3d3182"/>
+        <stop offset="100%" stop-color="#5b4fa8"/>
+      </linearGradient>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="3" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glow-strong">
+        <feGaussianBlur stdDeviation="6" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="note-shadow">
+        <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.5"/>
+      </filter>
+
+      <!-- RNA Polymerase enzyme complex -->
+      <g id="rna-polymerase">
+        <ellipse cx="0" cy="0" rx="55" ry="80" fill="url(#pol-grad)" stroke="#7b6fd4" stroke-width="2"/>
+        <path d="M-10,-60 Q30,-70 60,-50 Q70,-45 65,-30 Q55,-35 30,-40 Q0,-45 -15,-45 Z"
+              fill="url(#pol-jaw-top)" stroke="#8b7fe4" stroke-width="1.5"/>
+        <path d="M-10,60 Q30,70 55,50 Q65,40 60,25 Q50,35 30,38 Q0,42 -15,42 Z"
+              fill="url(#pol-jaw-bot)" stroke="#7b6fd4" stroke-width="1.5"/>
+        <path d="M-20,-10 Q20,-5 50,0 Q20,5 -20,10 Z" fill="#1a1040" stroke="#5b4fa8" stroke-width="1"/>
+        <circle cx="25" cy="0" r="8" fill="#ff6699" filter="url(#glow)" opacity="0.8"/>
+        <circle cx="25" cy="0" r="4" fill="#ffaacc"/>
+        <circle cx="20" cy="-4" r="3" fill="#ff88bb" opacity="0.9"/>
+        <circle cx="30" cy="3" r="3" fill="#ff88bb" opacity="0.9"/>
+        <path d="M30,40 Q50,55 60,70 Q55,75 45,65 Q35,55 25,42" fill="none"
+              stroke="#8b7fe4" stroke-width="2" stroke-dasharray="4,3"/>
+        <circle cx="-40" cy="-30" r="18" fill="#4a3d90" stroke="#6b5fc0" stroke-width="1.5" opacity="0.7"/>
+        <circle cx="-35" cy="35" r="14" fill="#4a3d90" stroke="#6b5fc0" stroke-width="1.5" opacity="0.7"/>
+        <circle cx="0" cy="-70" r="12" fill="#5548a0" stroke="#6b5fc0" stroke-width="1" opacity="0.6"/>
+        <text x="0" y="6" text-anchor="middle" font-size="11" fill="#ccc" font-weight="700" font-family="sans-serif">RNA Pol</text>
+      </g>
+
+      <!-- DNA backbones (wavy sugar-phosphate strands) -->
+      <g id="dna-backbone-top">
+        <path d="M0,0 Q60,-8 120,0 Q180,8 240,0 Q300,-8 360,0 Q420,8 480,0
+                 Q540,-8 600,0 Q660,8 720,0 Q780,-8 840,0 Q900,8 960,0
+                 Q1020,-8 1080,0" fill="none" stroke="#8899bb" stroke-width="3"/>
+      </g>
+      <g id="dna-backbone-bot">
+        <path d="M0,0 Q60,8 120,0 Q180,-8 240,0 Q300,8 360,0 Q420,-8 480,0
+                 Q540,8 600,0 Q660,-8 720,0 Q780,8 840,0 Q900,-8 960,0
+                 Q1020,8 1080,0" fill="none" stroke="#6677aa" stroke-width="2.5"/>
+      </g>
+
+      <!-- Nucleotide notes (DNA bases) — large, unified style -->
+      <g id="note-T">
+        <rect x="-36" y="-28" width="72" height="56" rx="12" fill="#ff6b6b" stroke="#fff" stroke-width="3" filter="url(#note-shadow)"/>
+        <rect x="-34" y="-26" width="68" height="26" rx="8" fill="rgba(255,255,255,0.15)"/>
+        <text x="0" y="9" text-anchor="middle" font-size="26" font-weight="900" fill="#fff" font-family="sans-serif">T</text>
+      </g>
+      <g id="note-A">
+        <rect x="-36" y="-28" width="72" height="56" rx="12" fill="#51cf66" stroke="#fff" stroke-width="3" filter="url(#note-shadow)"/>
+        <rect x="-34" y="-26" width="68" height="26" rx="8" fill="rgba(255,255,255,0.15)"/>
+        <text x="0" y="9" text-anchor="middle" font-size="26" font-weight="900" fill="#fff" font-family="sans-serif">A</text>
+      </g>
+      <g id="note-C">
+        <rect x="-36" y="-28" width="72" height="56" rx="12" fill="#339af0" stroke="#fff" stroke-width="3" filter="url(#note-shadow)"/>
+        <rect x="-34" y="-26" width="68" height="26" rx="8" fill="rgba(255,255,255,0.15)"/>
+        <text x="0" y="9" text-anchor="middle" font-size="26" font-weight="900" fill="#fff" font-family="sans-serif">C</text>
+      </g>
+      <g id="note-G">
+        <rect x="-36" y="-28" width="72" height="56" rx="12" fill="#e6a800" stroke="#fff" stroke-width="3" filter="url(#note-shadow)"/>
+        <rect x="-34" y="-26" width="68" height="26" rx="8" fill="rgba(255,255,255,0.15)"/>
+        <text x="0" y="9" text-anchor="middle" font-size="26" font-weight="900" fill="#fff" font-family="sans-serif">G</text>
+      </g>
+
+      <!-- Per-lane hit zone markers (colored) -->
+      <g id="hit-T"><rect x="-3" y="-30" width="6" height="60" rx="3" fill="#ff6b6b" opacity="0.6"/></g>
+      <g id="hit-A"><rect x="-3" y="-30" width="6" height="60" rx="3" fill="#51cf66" opacity="0.6"/></g>
+      <g id="hit-C"><rect x="-3" y="-30" width="6" height="60" rx="3" fill="#339af0" opacity="0.6"/></g>
+      <g id="hit-G"><rect x="-3" y="-30" width="6" height="60" rx="3" fill="#e6a800" opacity="0.6"/></g>
+
+      <!-- RNA bases (growing strand) -->
+      <g id="rna-A">
+        <rect x="-12" y="-10" width="24" height="20" rx="5" fill="#ff9999" stroke="#ff6b6b" stroke-width="1.5"/>
+        <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" font-family="sans-serif">A</text>
+      </g>
+      <g id="rna-U">
+        <rect x="-12" y="-10" width="24" height="20" rx="5" fill="#7bdb8e" stroke="#51cf66" stroke-width="1.5"/>
+        <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" font-family="sans-serif">U</text>
+      </g>
+      <g id="rna-G">
+        <rect x="-12" y="-10" width="24" height="20" rx="5" fill="#74b9ff" stroke="#339af0" stroke-width="1.5"/>
+        <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff" font-family="sans-serif">G</text>
+      </g>
+      <g id="rna-C">
+        <rect x="-12" y="-10" width="24" height="20" rx="5" fill="#ffe066" stroke="#fcc419" stroke-width="1.5"/>
+        <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#3d2e00" font-family="sans-serif">C</text>
+      </g>
+
+      <!-- Lane background -->
+      <g id="lane-bg">
+        <rect x="0" y="-30" width="1060" height="60" rx="10" fill="#0d0d2a" stroke="#223355" stroke-width="1" opacity="0.6"/>
+      </g>
+    </defs>
+  </svg>
+
+  <!-- ============ APP ============ -->
+  <div id="app">
+
+    <!-- Title Screen -->
+    <div id="title-screen" class="screen">
+      <svg width="180" height="200" viewBox="0 0 180 200" class="dna-icon">
+        <use href="#rna-polymerase" x="90" y="100"/>
+      </svg>
+      <h1>RNA 聚合酶</h1>
+      <div class="subtitle">— 4K 转录音游 —</div>
+      <button class="start-btn" onclick="Game.start()">按空格键开始</button>
+      <div style="color:#8899bb;font-size:.8rem;margin-bottom:6px">选择曲目</div>
+      <div class="song-list" id="song-list"></div>
+      <div style="font-size:.7rem;color:#556688;margin:12px 0 4px">[ ] 调节倍速</div>
+      <div style="color:#8899bb;font-size:.8rem;margin-bottom:8px">键位设置（点击修改）</div>
+      <div class="keybind-display" id="keybind-display"></div>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="game-screen" class="screen hidden">
+      <svg id="game-svg" viewBox="0 0 1200 750"></svg>
+      <div id="progress-bar"><div id="progress-fill"></div></div>
+      <div id="ui-overlay">
+        <div class="ui-item"><span class="ui-label">得分</span><span class="ui-value" id="ui-score">0</span></div>
+        <div class="ui-item"><span class="ui-label">进度</span><span class="ui-value" id="ui-progress">0%</span></div>
+        <div class="ui-item"><span class="ui-label">倍速</span><span class="ui-value" id="ui-speed">1.0x</span></div>
+        <div class="ui-item"><span class="ui-label">准确率</span><span class="ui-value" id="ui-accuracy">--</span></div>
+      </div>
+      <div id="ui-combo"><span style="font-size:1.2rem">COMBO</span><br><span class="combo-num" id="combo-num">0</span></div>
+      <div id="judgment-pop"></div>
+      <div id="countdown-overlay"><span id="countdown-text"></span></div>
+      <div id="pause-overlay"><span id="pause-text">暂停</span></div>
+    </div>
+
+    <!-- Result Screen -->
+    <div id="result-screen" class="screen hidden">
+      <h2>转录完成！</h2>
+      <div class="grade" id="result-grade">S</div>
+      <div class="badges" id="result-badges"></div>
+      <div class="result-stats">
+        <div class="result-stat"><div class="val" id="r-score">0</div><div class="lbl">总分</div></div>
+        <div class="result-stat"><div class="val" id="r-maxcombo">0</div><div class="lbl">最大连击</div></div>
+        <div class="result-stat"><div class="val" id="r-acc">0%</div><div class="lbl">准确率</div></div>
+        <div class="result-stat"><div class="val" id="r-judge">0/0/0/0</div><div class="lbl">Perfect/Great/Good/Miss</div></div>
+      </div>
+      <button class="retry-btn" onclick="Game.start()">再来一次</button>
+    </div>
+
+  </div>
+
+  <!-- Module loading order matters: config → midi → audio → game → main -->
+  <script src="js/config.js"></script>
+  <script src="js/songs.js"></script>
+  <script src="js/midi.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
