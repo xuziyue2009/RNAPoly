@@ -21,6 +21,7 @@ class GameEngine {
     this.rebindingLane = -1;
     this.noteSpeed = BASE_NOTE_SPEED;
     this.speedLevel = 2; // index into SPEED_LEVELS (1.0x)
+    this.spawnedUpTo = -1; // 已生成到 beatmap 的哪个索引（在 _loop 中自增）
 
     this._loadSettings();
     this.initSvg();
@@ -407,7 +408,14 @@ class GameEngine {
       this._pulsePolymerase();
       this._checkComboMilestones(prevCombo);
     } else {
+      // 空按（按了键但该 lane 附近没有可命中的音符）—— 严格模式：断 combo + 记 miss
       this.audio.playMiss();
+      const hadCombo = this.combo > 0;
+      this.combo = 0;
+      this.judgments.miss++;
+      this.totalJudged++;
+      this._showJudgmentMiss(lane);
+      if (hadCombo) this._animateComboBreak();
     }
     this._updateUI();
   }
@@ -901,7 +909,7 @@ class GameEngine {
     requestAnimationFrame(() => { g.setAttribute('opacity', '1'); });
   }
 
-  _showJudgmentMiss(lane) {
+  _showJudgmentMiss(lane, shake = true) {
     const el = document.getElementById('judgment-pop');
     el.textContent = 'MISS';
     el.style.color = '#ff6b6b';
@@ -909,8 +917,8 @@ class GameEngine {
     el.classList.remove('show');
     void el.offsetWidth;
     el.classList.add('show');
-    // Screen shake
-    this._shakeScreen();
+    // Screen shake（空按等轻反馈可不震屏）
+    if (shake) this._shakeScreen();
   }
 
   _animateComboBreak() {
@@ -965,7 +973,7 @@ class GameEngine {
     }
 
     let grade, gradeClass;
-    if (accPct > 95)      { grade = 'S'; gradeClass = 'S'; }
+    if (accPct >= 95)     { grade = 'S'; gradeClass = 'S'; }
     else if (accPct > 85) { grade = 'A'; gradeClass = 'A'; }
     else if (accPct > 70) { grade = 'B'; gradeClass = 'B'; }
     else if (accPct > 50) { grade = 'C'; gradeClass = 'C'; }
