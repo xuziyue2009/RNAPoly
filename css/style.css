@@ -335,6 +335,7 @@ body {
 #result-screen .grade.B { color: #339af0; }
 #result-screen .grade.C { color: #fcc419; }
 #result-screen .grade.D { color: #ff6b6b; }
+#result-screen .grade.F { color: #667799; }
 
 .result-stats {
   display: flex;

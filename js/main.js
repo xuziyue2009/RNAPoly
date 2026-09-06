@@ -3,3 +3,4 @@
 // ============================================================
 
 const Game = new GameEngine();
+window.Game = Game;

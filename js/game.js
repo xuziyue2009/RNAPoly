@@ -14,6 +14,7 @@ class GameEngine {
     this.score = 0;
     this.combo = 0;
     this.maxCombo = 0;
+    this.comboMult = 1;   // Malody combo 加成倍数（初始1，封顶1，下限0）
     this.judgments = { perfect: 0, great: 0, good: 0, miss: 0 };
     this.totalJudged = 0;
     this.animFrame = null;
@@ -21,6 +22,8 @@ class GameEngine {
     this.rebindingLane = -1;
     this.noteSpeed = BASE_NOTE_SPEED;
     this.speedLevel = 2; // index into SPEED_LEVELS (1.0x)
+    this.judgeTier = DEFAULT_JUDGE_TIER; // 判定难度档位（0=EASY ~ 4=EXTRA）
+    this.offset = DEFAULT_OFFSET;        // 判定偏移（ms，正=提前按）
     this.spawnedUpTo = -1; // 已生成到 beatmap 的哪个索引（在 _loop 中自增）
 
     this._loadSettings();
@@ -29,6 +32,7 @@ class GameEngine {
     this.renderSongList();
     this.renderKeyBindings();
     this.setupInput();
+    this._updateSpeedDisplay();
   }
 
   // ---- Persistence ----
@@ -45,10 +49,26 @@ class GameEngine {
         }
       }
     } catch (e) { /* ignore */ }
+    try {
+      const saved = localStorage.getItem('rnapoly-judge-tier');
+      if (saved !== null) {
+        const t = parseInt(saved);
+        if (t >= 0 && t < JUDGE_TIERS.length) this.judgeTier = t;
+      }
+    } catch (e) { /* ignore */ }
+    try {
+      const saved = localStorage.getItem('rnapoly-offset');
+      if (saved !== null) {
+        const o = parseInt(saved);
+        if (!isNaN(o) && Math.abs(o) <= 200) this.offset = o;
+      }
+    } catch (e) { /* ignore */ }
   }
   _saveSettings() {
     this.saveKeyBindings();
     try { localStorage.setItem('rnapoly-speed', String(this.speedLevel)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('rnapoly-judge-tier', String(this.judgeTier)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('rnapoly-offset', String(this.offset)); } catch (e) { /* ignore */ }
   }
 
   loadKeyBindings() {
@@ -355,6 +375,22 @@ class GameEngine {
         this._updateSpeedDisplay();
         return;
       }
+      // Judge tier adjustment (only on title screen): Slash = harder, Period = easier
+      if ((e.code === 'Slash' || e.code === 'Period') && this.state === 'idle') {
+        const delta = e.code === 'Slash' ? 1 : -1;
+        this.judgeTier = clamp(this.judgeTier + delta, 0, JUDGE_TIERS.length - 1);
+        this._saveSettings();
+        this._updateSpeedDisplay();
+        return;
+      }
+      // Offset calibration (only on title screen): Minus = later, Equal = earlier
+      if ((e.code === 'Minus' || e.code === 'Equal') && this.state === 'idle') {
+        this.offset += e.code === 'Minus' ? 4 : -4;
+        this.offset = clamp(this.offset, -200, 200);
+        this._saveSettings();
+        this._updateSpeedDisplay();
+        return;
+      }
       if (this.state === 'playing') {
         if (lane >= 0) this._onKeyPress(lane);
       }
@@ -375,34 +411,42 @@ class GameEngine {
   _onKeyPress(lane) {
     if (this.state !== 'playing') return;
 
-    const songTime = (this.audio.currentTime - this.songStartAudio) * 1000;
+    const win = getJudgeWindows(this.judgeTier);
+    const songTime = (this.audio.currentTime - this.songStartAudio) * 1000 - this.offset;
+    // Adjust hit window: larger offset = notes judged earlier (more tolerant)
     let bestNote = null, bestDist = Infinity;
     for (const note of this.notes) {
       if (note.lane !== lane || note.hit || note.missed) continue;
       const dist = Math.abs(songTime - note.time);
-      if (dist < GOOD_WIN && dist < bestDist) { bestDist = dist; bestNote = note; }
+      if (dist < win.good && dist < bestDist) { bestDist = dist; bestNote = note; }
     }
 
     if (bestNote) {
       const offset = songTime - bestNote.time;
-      let judgment, points;
-      if (Math.abs(offset) <= PERFECT_WIN)  { judgment = 'perfect'; points = 300; }
-      else if (Math.abs(offset) <= GREAT_WIN) { judgment = 'great';   points = 200; }
-      else                                    { judgment = 'good';    points = 100; }
+      let judgmentId;
+      if (Math.abs(offset) <= win.perfect)  { judgmentId = 'perfect'; }
+      else if (Math.abs(offset) <= win.great) { judgmentId = 'great'; }
+      else                                    { judgmentId = 'good'; }
+
+      // Malody scoring: base points × (1 + comboMult), multiplier updated then applied
+      const prevComboMult = this.comboMult;
+      // Update multiplier from judgment first
+      this.comboMult = clamp(this.comboMult + COMBO_MOD[judgmentId], 0, 1);
+      const points = Math.round(BASE_POINTS[judgmentId] * (1 + this.comboMult) * win.gradeMult);
 
       bestNote.hit = true;
       const prevCombo = this.combo;
       this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-      const mult = this.combo >= 50 ? 4 : this.combo >= 30 ? 3 : this.combo >= 10 ? 2 : 1;
-      this.score += points * mult;
-      this.judgments[judgment]++;
+      this.score += points;
+      this.judgments[judgmentId]++;
       this.totalJudged++;
+      this._latestComboMult = this.comboMult;
 
-      this.audio.playHit(lane, judgment);
+      this.audio.playHit(lane, judgmentId);
       this._animateNoteHit(bestNote);
-      this._showJudgment(judgment, lane, offset);
-      this._spawnParticles(lane, judgment);
+      this._showJudgment(judgmentId, lane, offset);
+      this._spawnParticles(lane, judgmentId);
       this._addRnaBase(lane);
       this._flashLane(lane);
       this._pulsePolymerase();
@@ -412,6 +456,8 @@ class GameEngine {
       this.audio.playMiss();
       const hadCombo = this.combo > 0;
       this.combo = 0;
+      // Malody: MISS drops combo multiplier by 0.32
+      this.comboMult = clamp(this.comboMult + COMBO_MOD.miss, 0, 1);
       this.judgments.miss++;
       this.totalJudged++;
       this._showJudgmentMiss(lane);
@@ -614,7 +660,9 @@ class GameEngine {
     document.getElementById('ui-score').textContent = this.score.toLocaleString();
     if (this.totalJudged > 0) {
       const acc = Math.round(
-        (this.judgments.perfect * 100 + this.judgments.great * 80 + this.judgments.good * 50) /
+        (this.judgments.perfect * ACC_WEIGHTS.perfect +
+         this.judgments.great * ACC_WEIGHTS.great +
+         this.judgments.good * ACC_WEIGHTS.good) /
         this.totalJudged
       );
       document.getElementById('ui-accuracy').textContent = acc + '%';
@@ -640,6 +688,11 @@ class GameEngine {
   _updateSpeedDisplay() {
     const el = document.getElementById('ui-speed');
     if (el) el.textContent = SPEED_LEVELS[this.speedLevel].toFixed(2) + 'x';
+    const st = document.getElementById('settings-status');
+    if (st) {
+      const tierName = JUDGE_TIERS[this.judgeTier].name;
+      st.textContent = `倍速 ${SPEED_LEVELS[this.speedLevel].toFixed(2)}x  ·  判定 ${tierName}  ·  偏移 ${this.offset >= 0 ? '+' : ''}${this.offset}ms`;
+    }
   }
 
   _updatePreviewDots(songTime) {
@@ -688,6 +741,7 @@ class GameEngine {
   start() {
     this.state = 'countdown';
     this.score = 0; this.combo = 0; this.maxCombo = 0;
+    this.comboMult = 1;
     this.judgments = { perfect: 0, great: 0, good: 0, miss: 0 };
     this.totalJudged = 0;
     this.notes = [];
@@ -951,11 +1005,11 @@ class GameEngine {
 
     const total = this.totalJudged || 1;
     const acc = Math.round(
-      (this.judgments.perfect * 100 + this.judgments.great * 80 + this.judgments.good * 50) / total
+      (this.judgments.perfect * ACC_WEIGHTS.perfect +
+       this.judgments.great * ACC_WEIGHTS.great +
+       this.judgments.good * ACC_WEIGHTS.good) / total
     );
-    const accPct = Math.round(
-      (this.judgments.perfect + this.judgments.great * 0.8 + this.judgments.good * 0.5) / total * 100
-    );
+    const accPct = acc; // 统一用 Malody 权重
 
     // FC / AP detection
     const isFullCombo = this.judgments.miss === 0;
@@ -972,12 +1026,9 @@ class GameEngine {
       setTimeout(() => fc.classList.add('show'), 800);
     }
 
-    let grade, gradeClass;
-    if (accPct >= 95)     { grade = 'S'; gradeClass = 'S'; }
-    else if (accPct > 85) { grade = 'A'; gradeClass = 'A'; }
-    else if (accPct > 70) { grade = 'B'; gradeClass = 'B'; }
-    else if (accPct > 50) { grade = 'C'; gradeClass = 'C'; }
-    else                  { grade = 'D'; gradeClass = 'D'; }
+    // Grade (Malody M 体系: S/M5 A/M4 B/M3 C/M2 D/M1 F/M0)
+    const grade = computeGrade(acc, this.judgments);
+    const gradeClass = grade;
 
     // Animated score count-up
     const scoreEl = document.getElementById('r-score');
