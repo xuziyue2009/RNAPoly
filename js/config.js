@@ -14,17 +14,18 @@ const HIT_X       = 195;
 const SPAWN_X     = 1180;
 const BASE_NOTE_SPEED = 0.45;
 
-// ---------- Judgment Windows (Malody 5-tier, PC values) ----------
+// ---------- Judgment Windows (主流音游手感：放宽到 ±48/95/135) ----------
 // BEST / COOL / GOOD windows scale with difficulty tier; MISS stays fixed.
 // Tier index 0..4 → A(EASY) B C D E(HARD). Lower tier = harder = narrower window.
+// 放宽后的 NORMAL 对应主流 4K 下落式手感（PERFECT≈±48ms），横向移动更友好。
 const JUDGE_TIERS = [
-  { name: 'EASY',   gradeMult: 0.78, best: 52, great: 92, good: 126 },
-  { name: 'EASY+',  gradeMult: 0.85, best: 44, great: 84, good: 118 },
-  { name: 'NORMAL', gradeMult: 1.00, best: 36, great: 76, good: 110 },
-  { name: 'HARD',   gradeMult: 1.10, best: 28, great: 68, good: 102 },
-  { name: 'EXTRA',  gradeMult: 1.20, best: 20, great: 60, good: 94 },
+  { name: 'EASY',   gradeMult: 0.78, best: 68, great: 118, good: 158 },
+  { name: 'EASY+',  gradeMult: 0.85, best: 58, great: 106, good: 146 },
+  { name: 'NORMAL', gradeMult: 1.00, best: 48, great: 95,  good: 135 },
+  { name: 'HARD',   gradeMult: 1.10, best: 38, great: 84,  good: 124 },
+  { name: 'EXTRA',  gradeMult: 1.20, best: 30, great: 74,  good: 114 },
 ];
-const MISS_WIN = 150;  // fixed miss window (widest)
+const MISS_WIN = 190;  // fixed miss window (widest, 放宽以匹配主流音游容错)
 
 // ---------- Judgment naming ----------
 // Malody uses BEST/COOL/GOOD; we keep PERFECT/GREAT/GOOD for continuity.
@@ -54,9 +55,14 @@ const GRADES = [
 // ---------- Speed (exponential mapping 2^(0.1x), Malody) ----------
 // Speed level 0..20 → real speed = 2^(0.1 * offset). 0 = standard.
 // We use a simple integer index for the UI but map exponentially.
-const SPEED_LEVELS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+const SPEED_LEVELS = [0.6, 0.85, 1.1, 1.35, 1.6, 1.85, 2.1];
 const DEFAULT_KEYS    = ['KeyD', 'KeyF', 'KeyJ', 'KeyK'];
 const DEFAULT_JUDGE_TIER = 2;   // NORMAL
+
+// ---------- Empty-press (空按) 行为 ----------
+// 主流音游：空按（按了键但附近无音符）不惩罚，不 miss、不断 combo。
+// 只保留轻微视觉/音效反馈。可切换严格模式（空按断 combo）。
+const PUNISH_EMPTY_PRESS = false;   // false = 空按不惩罚（推荐，主流手感）
 
 // ---------- Offset calibration (ms, ±) ----------
 const DEFAULT_OFFSET = 0;

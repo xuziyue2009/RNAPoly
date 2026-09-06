@@ -98,5 +98,20 @@ class AudioEngine {
     osc.stop(this.ctx.currentTime + 0.06);
   }
 
+  // 空按轻反馈：柔和短促的高频"嗒"，提示按到但无音符（不压抑、不断连击）
+  playEmpty() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(600, this.ctx.currentTime);
+    env.gain.setValueAtTime(0.05, this.ctx.currentTime);
+    env.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.06);
+    osc.connect(env);
+    env.connect(this.masterGain);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.06);
+  }
+
   get currentTime() { return this.ctx ? this.ctx.currentTime : 0; }
 }

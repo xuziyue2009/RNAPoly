@@ -20,8 +20,8 @@ class GameEngine {
     this.animFrame = null;
     this.keyBindings = [...DEFAULT_KEYS];
     this.rebindingLane = -1;
-    this.noteSpeed = BASE_NOTE_SPEED;
-    this.speedLevel = 2; // index into SPEED_LEVELS (1.0x)
+    this.noteSpeed = BASE_NOTE_SPEED * SPEED_LEVELS[2]; // 初始与默认 speedLevel=2 一致（1.1x）
+    this.speedLevel = 2; // index into SPEED_LEVELS (1.1x)
     this.judgeTier = DEFAULT_JUDGE_TIER; // 判定难度档位（0=EASY ~ 4=EXTRA）
     this.offset = DEFAULT_OFFSET;        // 判定偏移（ms，正=提前按）
     this.spawnedUpTo = -1; // 已生成到 beatmap 的哪个索引（在 _loop 中自增）
@@ -191,9 +191,9 @@ class GameEngine {
       const lb = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       lb.setAttribute('x', 100); lb.setAttribute('y', LANE_Y[i] - 30);
       lb.setAttribute('width', 1060); lb.setAttribute('height', 60);
-      lb.setAttribute('rx', 10); lb.setAttribute('fill', '#0d0d2a');
-      lb.setAttribute('stroke', '#223355'); lb.setAttribute('stroke-width', '1');
-      lb.setAttribute('opacity', '0.6');
+      lb.setAttribute('rx', 10); lb.setAttribute('fill', '#101035');
+      lb.setAttribute('stroke', '#2e3f6e'); lb.setAttribute('stroke-width', '2');
+      lb.setAttribute('opacity', '0.8');   // 略提高，轨道更清晰
       this.gLanes.appendChild(lb);
       this._laneBgs.push(lb);
 
@@ -256,11 +256,14 @@ class GameEngine {
       this._previewDots.push(dots);
     }
 
-    // Hit-zone markers (colored per lane)
+    // Hit-zone markers (colored per lane) —— 加粗 + 发光，命中锚点醒目
     for (let i = 0; i < LANE_COUNT; i++) {
       const hm = document.createElementNS('http://www.w3.org/2000/svg', 'use');
       hm.setAttribute('href', '#hit-' + DNA_BASES[i]);
       hm.setAttribute('x', HIT_X); hm.setAttribute('y', LANE_Y[i]);
+      hm.setAttribute('width', '14'); hm.setAttribute('height', '68');
+      hm.setAttribute('opacity', '0.95');
+      hm.setAttribute('filter', 'url(#glow)');
       this.gPol.appendChild(hm);
     }
 
@@ -557,16 +560,22 @@ class GameEngine {
       this._pulsePolymerase();
       this._checkComboMilestones(prevCombo);
     } else {
-      // 空按（按了键但该 lane 附近没有可命中的音符）—— 严格模式：断 combo + 记 miss
-      this.audio.playMiss();
-      const hadCombo = this.combo > 0;
-      this.combo = 0;
-      // Malody: MISS drops combo multiplier by 0.32
-      this.comboMult = clamp(this.comboMult + COMBO_MOD.miss, 0, 1);
-      this.judgments.miss++;
-      this.totalJudged++;
-      this._showJudgmentMiss(lane);
-      if (hadCombo) this._animateComboBreak();
+      // 空按（按了键但该 lane 附近没有可命中的音符）
+      if (PUNISH_EMPTY_PRESS) {
+        // 严格模式：断 combo + 记 miss（硬核挑战）
+        this.audio.playMiss();
+        const hadCombo = this.combo > 0;
+        this.combo = 0;
+        this.comboMult = clamp(this.comboMult + COMBO_MOD.miss, 0, 1);
+        this.judgments.miss++;
+        this.totalJudged++;
+        this._showJudgmentMiss(lane);
+        if (hadCombo) this._animateComboBreak();
+      } else {
+        // 主流手感：空按不惩罚 —— 只保留轻微视觉反馈（判定区闪一下）+ 柔和音效，不 miss、不断 combo
+        this.audio.playEmpty();
+        this._flashLane(lane, true);
+      }
     }
     this._updateUI();
   }
@@ -614,11 +623,20 @@ class GameEngine {
     }
   }
 
-  // Note hit: scale up + fade out (scale preserved in loop transform now)
+  // Note hit: 吸入动画（先放大→再收缩消失），配合闪烁，击中有快感
   _animateNoteHit(note) {
-    note.el.setAttribute('opacity', '0');
-    note.el.style.transition = 'opacity 0.15s ease-out';
     note._hitAnimated = true;
+    note._stopped = true;
+    // 阶段1：放大定格一小帧，制造「打到」的凝固感
+    note.el.style.transition = 'none';
+    note.el.setAttribute('opacity', '1');
+    // 阶段2：收缩 + 淡出（吸入效果）
+    requestAnimationFrame(() => {
+      note._shrinking = true;
+      note.el.style.transition = 'opacity 0.12s ease-in, transform 0.12s ease-in';
+      note.el.setAttribute('opacity', '0');
+    });
+    // 下一帧让 transform scale 生效（由 _loop 持续更新 _shrinking → 0.2）
   }
 
   // Note miss: red flash overlay + dim
@@ -628,7 +646,7 @@ class GameEngine {
     setTimeout(() => { note.flashEl.setAttribute('opacity', '0'); }, 150);
   }
 
-  _flashLane(lane) {
+  _flashLane(lane, gentle = false) {
     const lb = this._laneBgs[lane];
     if (lb) {
       lb.setAttribute('opacity', '1');
@@ -636,11 +654,11 @@ class GameEngine {
       lb.setAttribute('stroke', '#fff');
       lb.setAttribute('stroke-width', '2');
       setTimeout(() => {
-        lb.setAttribute('opacity', '0.6');
-        lb.setAttribute('fill', '#0d0d2a');
-        lb.setAttribute('stroke', '#223355');
-        lb.setAttribute('stroke-width', '1');
-      }, 120);
+        lb.setAttribute('opacity', '0.8');
+        lb.setAttribute('fill', '#101035');
+        lb.setAttribute('stroke', '#2e3f6e');
+        lb.setAttribute('stroke-width', '2');
+      }, gentle ? 60 : 120);
     }
     // Also pulse the key indicator pill
     if (this._keyIndicators && this._keyIndicators[lane]) {
@@ -652,7 +670,7 @@ class GameEngine {
         setTimeout(() => {
           pill.setAttribute('fill', '#0a0a22');
           pill.setAttribute('opacity', '0.85');
-        }, 150);
+        }, gentle ? 80 : 150);
       }
     }
   }
@@ -1016,16 +1034,28 @@ class GameEngine {
     const toRemove = [];
     for (let i = 0; i < this.notes.length; i++) {
       const note = this.notes[i];
-      const x = HIT_X + (note.time - songTime) * effSpeed;
-      const scale = note._hitAnimated ? ' scale(1.3)' : '';
-      note.el.setAttribute('transform', `translate(${x},${LANE_Y[this.toDisplayLane(note.lane)]})${scale}`);
-      note.screenX = x;
+      // Hold 音符命中头部后：group 停在判定线（避免 body 锚点漂移，手感稳定）
+      let screenX;
+      if (note.holding || note._stopped) {
+        screenX = HIT_X;
+      } else {
+        screenX = HIT_X + (note.time - songTime) * effSpeed;
+      }
+      const scale = note._hitAnimated
+        ? (note._shrinking ? ' scale(0.2)' : ' scale(1.3)')
+        : '';
+      note.el.setAttribute('transform', `translate(${screenX},${LANE_Y[this.toDisplayLane(note.lane)]})${scale}`);
+      note.screenX = screenX;
 
-      const distToHit = Math.abs(x - HIT_X);
-      if (distToHit < 40 && !note.hit && !note.missed) {
+      const distToHit = Math.abs(screenX - HIT_X);
+      // 接近命中线强化发光（视觉锚点：到点前放大+发光，让玩家明确何时该按）
+      if (distToHit < 120 && !note.hit && !note.missed && !note.holding) {
+        const glowStrength = 1 - distToHit / 120;
         note.useEl.setAttribute('filter', 'url(#glow)');
+        note.useEl.setAttribute('transform', `scale(${1 + glowStrength * 0.25})`);
       } else if (note.useEl) {
         note.useEl.removeAttribute('filter');
+        note.useEl.removeAttribute('transform');
       }
 
       // Miss detection（跳过正在 holding 的 Hold 音符，由下方 Hold 检测处理）
@@ -1044,7 +1074,7 @@ class GameEngine {
         }
       }
 
-      if (x < -60) { toRemove.push(i); if (note.el.parentNode) note.el.remove(); }
+      if (screenX < -60) { toRemove.push(i); if (note.el.parentNode) note.el.remove(); }
 
       // Hold 持续按住检测
       if (this.state === 'playing' && note.isHold && note.holding && !note.hit && !note.missed) {
