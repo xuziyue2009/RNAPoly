@@ -266,6 +266,21 @@ class GameEngine {
   }
 
   // ---- Song Selection UI ----
+  // 预计算并缓存每首歌的难度（只需一次，懒加载）
+  _songDiff(i) {
+    const song = SONGS[i];
+    if (song._diff) return song._diff;
+    try {
+      const midiBytes = decodeMidiBase64(song.midiBase64);
+      const parsed = parseMidi(midiBytes);
+      const beatmap = buildBeatmap(parsed);
+      song._diff = computeDifficulty(beatmap);
+    } catch (e) {
+      song._diff = { nps: 0, peakNps: 0, level: DIFF_LEVELS[0], stars: 1 };
+    }
+    return song._diff;
+  }
+
   renderSongList() {
     const container = document.getElementById('song-list');
     if (!container) return;
@@ -279,6 +294,15 @@ class GameEngine {
       const sub = document.createElement('div'); sub.className = 's-sub';
       sub.textContent = song.titleEn + ' · ' + song.bpm + ' BPM';
       card.appendChild(title); card.appendChild(sub);
+
+      // 难度星级
+      const diff = this._songDiff(i);
+      const diffEl = document.createElement('div'); diffEl.className = 's-diff';
+      diffEl.textContent = '★'.repeat(diff.stars)
+        + ' · ~Lv.' + diff.level.lv + ' ' + diff.level.name
+        + ' · NPS ' + diff.nps.toFixed(1) + (diff.peakNps > diff.nps + 0.3 ? ' /峰值' + diff.peakNps.toFixed(1) : '');
+      card.appendChild(diffEl);
+
       card.addEventListener('click', () => {
         if (selectSong(i)) {
           this.renderSongList();

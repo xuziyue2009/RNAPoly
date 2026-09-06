@@ -115,6 +115,8 @@ body {
 .song-card.active { border-color: #51cf66; background: #0d2a1a; box-shadow: 0 0 12px rgba(81,207,102,0.25); }
 .song-card .s-title { font-size: 0.95rem; font-weight: 700; color: #ddeeff; }
 .song-card .s-sub { font-size: 0.7rem; color: #667799; margin-top: 2px; }
+.song-card .s-diff { font-size: 0.68rem; color: #fcc419; margin-top: 3px; letter-spacing: 0.5px; }
+.song-card.active .s-diff { color: #ffe066; }
 
 /* Key-binding display on title screen */
 .keybind-display {

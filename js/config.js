@@ -67,6 +67,62 @@ const HOLD_MIN_MS = 400;        // duration 达到此值视为长按音符 (Hold
 const HOLD_BODY_ALPHA = 0.35;   // 长条 body 的不透明度
 const HOLD_SCORE_MULT = 1.5;    // Hold 完整命中的额外得分倍数（相对 tap）
 
+// ---------- Difficulty Rating (Malody 难度星级：NPS 密度线性映射) ----------
+// Malody 未标级谱面用「密度等级 ~Lv.oo」：核心指标 = 音符密度 NPS (notes/sec) 线性映射。
+// 这里做适当增强：峰值 NPS（最长连续密集段）加权，更准确的反映实际难度。
+const DIFF_LEVELS = [
+  { lv: 1,  minNps: 0,    name: '观赏' },
+  { lv: 2,  minNps: 1.5,  name: '入门' },
+  { lv: 3,  minNps: 2.5,  name: '简单' },
+  { lv: 4,  minNps: 3.5,  name: '正常' },
+  { lv: 5,  minNps: 4.5,  name: '进阶' },
+  { lv: 6,  minNps: 5.5,  name: '困难' },
+  { lv: 7,  minNps: 6.5,  name: '大师' },
+];
+function npsToLevel(nps) {
+  for (let i = DIFF_LEVELS.length - 1; i >= 0; i--) {
+    if (nps >= DIFF_LEVELS[i].minNps) return DIFF_LEVELS[i];
+  }
+  return DIFF_LEVELS[0];
+}
+
+// 计算一首谱面的难度信息（基于排序后的 beatmap）
+// beatmap: [{time, ...}] 已按时间升序
+// windowMs: 峰值统计窗口（默认取 4000ms 滑窗内的最大音符数）
+function computeDifficulty(beatmap, windowMs = 4000) {
+  if (!beatmap || beatmap.length === 0) {
+    return { nps: 0, peakNps: 0, level: DIFF_LEVELS[0], stars: 1 };
+  }
+  const n = beatmap.length;
+  const start = beatmap[0].time;
+  const end = beatmap[n - 1].time + 1000;      // 含尾音 1s
+  const durSec = Math.max(0.5, (end - start) / 1000);
+  const nps = n / durSec;                       // 平均 NPS
+
+  // 峰值 NPS：滑窗内最大音符数 → 每秒
+  let peakCount = 1;
+  for (let i = 0; i < n; i++) {
+    const windowStart = beatmap[i].time;
+    let cnt = 0;
+    for (let j = i; j < n; j++) {
+      if (beatmap[j].time - windowStart <= windowMs) cnt++;
+      else break;
+    }
+    if (cnt > peakCount) peakCount = cnt;
+  }
+  const peakNps = peakCount / (windowMs / 1000);
+
+  // 综合 NPS：平均与峰值加权（峰值更反映手感难度）
+  const effNps = nps * 0.55 + peakNps * 0.45;
+  const level = npsToLevel(effNps);
+
+  // 星级：1~7，用综合 NPS 线性饱满映射
+  const maxNps = 12;
+  const stars = Math.max(1, Math.min(7, Math.round(1 + (effNps / maxNps) * 6)));
+
+  return { nps, peakNps, level, stars };
+}
+
 // ---------- Utility Functions ----------
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 function midiToFreq(note) { return 440 * Math.pow(2, (note - 69) / 12); }
