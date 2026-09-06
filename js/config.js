@@ -61,6 +61,12 @@ const DEFAULT_JUDGE_TIER = 2;   // NORMAL
 // ---------- Offset calibration (ms, ±) ----------
 const DEFAULT_OFFSET = 0;
 
+// ---------- Hold (长按) 机制 ----------
+// Malody 长按：按下 head 并持续按住到 tail 才算完整命中；中途松开断 combo。
+const HOLD_MIN_MS = 400;        // duration 达到此值视为长按音符 (Hold)
+const HOLD_BODY_ALPHA = 0.35;   // 长条 body 的不透明度
+const HOLD_SCORE_MULT = 1.5;    // Hold 完整命中的额外得分倍数（相对 tap）
+
 // ---------- Utility Functions ----------
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 function midiToFreq(note) { return 440 * Math.pow(2, (note - 69) / 12); }

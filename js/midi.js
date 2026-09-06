@@ -209,6 +209,7 @@ function buildBeatmap(parsedNotes) {
       rnaBase: RNA_BASES[lane],
       midiNote: n.midiNote,
       durationMs: n.durationMs,
+      isHold: typeof HOLD_MIN_MS === 'number' && n.durationMs >= HOLD_MIN_MS,
       id: beatmap.length,
     });
   }

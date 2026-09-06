@@ -417,6 +417,7 @@ class GameEngine {
     let bestNote = null, bestDist = Infinity;
     for (const note of this.notes) {
       if (note.lane !== lane || note.hit || note.missed) continue;
+      if (note.isHold && note.holding) continue; // 正在按住的长按音符不可重复命中
       const dist = Math.abs(songTime - note.time);
       if (dist < win.good && dist < bestDist) { bestDist = dist; bestNote = note; }
     }
@@ -434,8 +435,30 @@ class GameEngine {
       this.comboMult = clamp(this.comboMult + COMBO_MOD[judgmentId], 0, 1);
       const points = Math.round(BASE_POINTS[judgmentId] * (1 + this.comboMult) * win.gradeMult);
 
-      bestNote.hit = true;
       const prevCombo = this.combo;
+
+      if (bestNote.isHold) {
+        // Hold head 命中：进入 holding 状态，不立即 hit，直到持续按住完成
+        bestNote.headJudgment = judgmentId;    // 记录头部判定
+        bestNote.holding = true;                // 正在按住
+        bestNote.holdStartTime = songTime;
+        bestNote.holdEndTime = bestNote.time + bestNote.durationMs;
+        this._showJudgment(judgmentId, lane, offset);
+        this.audio.playHit(lane, judgmentId);
+        this._spawnParticles(lane, judgmentId);
+        this._flashLane(lane);
+        this._pulsePolymerase();
+        // head 也计入 combo 与判定数（部分游戏 Hold head/body/tail 各计一次，这里 head 计入）
+        this.combo++;
+        if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+        this.judgments[judgmentId]++;
+        this.totalJudged++;
+        this._latestComboMult = this.comboMult;
+        this._updateUI();
+        return;
+      }
+
+      bestNote.hit = true;
       this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
       this.score += points;
@@ -887,9 +910,10 @@ class GameEngine {
         note.useEl.removeAttribute('filter');
       }
 
-      // Miss detection
-      if (this.state === 'playing' && !note.hit && !note.missed) {
-        if (songTime > note.time + GOOD_WIN) {
+      // Miss detection（跳过正在 holding 的 Hold 音符，由下方 Hold 检测处理）
+      if (this.state === 'playing' && !note.hit && !note.missed && !(note.isHold && note.holding)) {
+        const win = getJudgeWindows(this.judgeTier);
+        if (songTime > note.time + win.good) {
           note.missed = true;
           this._animateNoteMiss(note);
           const hadCombo = this.combo > 0;
@@ -903,6 +927,52 @@ class GameEngine {
       }
 
       if (x < -60) { toRemove.push(i); if (note.el.parentNode) note.el.remove(); }
+
+      // Hold 持续按住检测
+      if (this.state === 'playing' && note.isHold && note.holding && !note.hit && !note.missed) {
+        const laneKey = this.keyBindings[note.lane];
+        const stillHolding = this._keyStates[laneKey];
+        const win = getJudgeWindows(this.judgeTier);
+
+        if (songTime >= note.holdEndTime && stillHolding) {
+          // 完整按住到尾部 —— Hold 命中
+          // 尾部判定（越接近尾部perfect越好，这里按头部判定给基础分，尾部奖励）
+          note.hit = true;
+          note.holding = false;
+          // body 进度补满
+          if (note.holdBodyEl) note.holdBodyEl.setAttribute('opacity', '0');
+          const tailPts = Math.round(BASE_POINTS[note.headJudgment || 'perfect'] * HOLD_SCORE_MULT * win.gradeMult);
+          // 用当前 comboMult 计算
+          this.comboMult = clamp(this.comboMult + COMBO_MOD[note.headJudgment || 'perfect'], 0, 1);
+          this.score += Math.round(tailPts * (1 + this.comboMult));
+          this.combo++;
+          if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+          this._addRnaBase(note.lane);
+          this._animateNoteHit(note);
+          this._showJudgment(note.headJudgment || 'perfect', note.lane, 0);
+          this._spawnParticles(note.lane, note.headJudgment || 'perfect');
+          this._checkComboMilestones(0);
+          this._updateUI();
+        } else if (!stillHolding && songTime < note.holdEndTime - win.good) {
+          // 松开过早（还没到尾部）—— Hold 断开，断 combo
+          note.holding = false;
+          note.hit = true;      // 视为已处理，避免重复
+          const hadCombo = this.combo > 0;
+          this.combo = 0;
+          this.judgments.miss++;
+          this.totalJudged++;
+          this.comboMult = clamp(this.comboMult + COMBO_MOD.miss, 0, 1);
+          this._animateNoteMiss(note);
+          this._showJudgmentMiss(note.lane, false);
+          if (hadCombo) this._animateComboBreak();
+          this._updateUI();
+        } else if (note.holdBodyEl) {
+          // 更新 body 消耗进度（命中线左侧长度按剩余按住时间消耗）
+          const remain = Math.max(0, note.holdEndTime - songTime);
+          const remainLen = Math.max(0, remain * this.noteSpeed);
+          note.holdBodyEl.setAttribute('width', String(remainLen));
+        }
+      }
     }
     for (let i = toRemove.length - 1; i >= 0; i--) {
       this.notes.splice(toRemove[i], 1);
@@ -937,6 +1007,24 @@ class GameEngine {
     useEl.setAttribute('href', '#note-' + beat.dnaBase);
     g.appendChild(useEl);
 
+    // Hold body：长按音符在方块右侧的横向拖尾（代表按住持续时间）
+    let holdBodyEl = null;
+    if (beat.isHold) {
+      const bodyLen = Math.max(40, beat.durationMs * this.noteSpeed);
+      holdBodyEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      holdBodyEl.setAttribute('x', '36');       // 方块右边缘
+      holdBodyEl.setAttribute('y', '-14');      // 相对方块中心垂直居中（-28+14）
+      holdBodyEl.setAttribute('width', String(bodyLen));
+      holdBodyEl.setAttribute('height', '28');
+      holdBodyEl.setAttribute('rx', '10');
+      holdBodyEl.setAttribute('fill', BASE_COLORS[beat.lane]);
+      holdBodyEl.setAttribute('opacity', String(HOLD_BODY_ALPHA));
+      holdBodyEl.setAttribute('stroke', BASE_COLORS[beat.lane]);
+      holdBodyEl.setAttribute('stroke-width', '2');
+      holdBodyEl.setAttribute('style', 'pointer-events:none');
+      g.appendChild(holdBodyEl);
+    }
+
     // Hidden miss-flash rect (shown on miss)
     const flash = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     flash.setAttribute('x', '-36'); flash.setAttribute('y', '-28');
@@ -954,6 +1042,7 @@ class GameEngine {
       el: g,           // the group
       useEl: useEl,    // the <use> inside it
       flashEl: flash,  // miss flash rect
+      holdBodyEl: holdBodyEl, // hold body rect (null for tap)
       screenX: initialX,
       hit: false,
       missed: false,
