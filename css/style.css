@@ -455,3 +455,8 @@ body {
   pointer-events: none;
   animation: judge-pop 0.6s ease-out forwards;
 }
+  
+/* ---- Mod HUD ---- */
+#mod-status.mod-active { color: #ffd43b; font-weight: 600; }
+#mod-status.mod-inactive { color: #8899bb; }
+

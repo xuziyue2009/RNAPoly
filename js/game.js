@@ -25,6 +25,7 @@ class GameEngine {
     this.judgeTier = DEFAULT_JUDGE_TIER; // 判定难度档位（0=EASY ~ 4=EXTRA）
     this.offset = DEFAULT_OFFSET;        // 判定偏移（ms，正=提前按）
     this.spawnedUpTo = -1; // 已生成到 beatmap 的哪个索引（在 _loop 中自增）
+    this.mods = new Set(); // 启用的 Mod（参见 MODS）
 
     this._loadSettings();
     this.initSvg();
@@ -63,12 +64,22 @@ class GameEngine {
         if (!isNaN(o) && Math.abs(o) <= 200) this.offset = o;
       }
     } catch (e) { /* ignore */ }
+    try {
+      const saved = localStorage.getItem('rnapoly-mods');
+      if (saved) {
+        const arr = JSON.parse(saved);
+        if (Array.isArray(arr)) {
+          this.mods = new Set(arr.filter(id => MODS[id]));
+        }
+      }
+    } catch (e) { /* ignore */ }
   }
   _saveSettings() {
     this.saveKeyBindings();
     try { localStorage.setItem('rnapoly-speed', String(this.speedLevel)); } catch (e) { /* ignore */ }
     try { localStorage.setItem('rnapoly-judge-tier', String(this.judgeTier)); } catch (e) { /* ignore */ }
     try { localStorage.setItem('rnapoly-offset', String(this.offset)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('rnapoly-mods', JSON.stringify([...this.mods])); } catch (e) { /* ignore */ }
   }
 
   loadKeyBindings() {
@@ -415,6 +426,12 @@ class GameEngine {
         this._updateSpeedDisplay();
         return;
       }
+      // Mod 切换（标题界面）：Digit1~5 对应 DASH/RUSH/SLOW/FLIP/HIDE
+      if (MOD_ID_BY_KEY[e.code] && this.state === 'idle') {
+        this._toggleMod(MOD_ID_BY_KEY[e.code]);
+        this._updateSpeedDisplay();
+        return;
+      }
       if (this.state === 'playing') {
         if (lane >= 0) this._onKeyPress(lane);
       }
@@ -432,15 +449,56 @@ class GameEngine {
     });
   }
 
+  // ---- Mod 系统辅助 ----
+  // 有效判定窗口：基础窗口 × 速度类 Mod 的窗口缩放（加速缩窗、减速放窗）
+  _getEffectiveWindow() {
+    const win = getJudgeWindows(this.judgeTier);
+    let mult = 1;
+    for (const id of this.mods) {
+      const m = MODS[id];
+      if (m && m.windowMult) mult *= m.windowMult;
+    }
+    if (mult === 1) return win;
+    return { perfect: win.perfect * mult, great: win.great * mult, good: win.good * mult, miss: win.miss, gradeMult: win.gradeMult };
+  }
+  // 有效下落速度：基础速度 × 速度类 Mod 缩放
+  _effectiveNoteSpeed() {
+    let mult = 1;
+    for (const id of this.mods) {
+      const m = MODS[id];
+      if (m && m.speedMult) mult *= m.speedMult;
+    }
+    return this.noteSpeed * mult;
+  }
+  // 有效轨道：FLIP 镜像时左右翻转映射（lane 0<->3、1<->2）
+  toDisplayLane(lane) {
+    if (this.mods.has('FLIP')) return 3 - lane;
+    return lane;
+  }
+  fromDisplayLane(lane) {
+    if (this.mods.has('FLIP')) return 3 - lane;
+    return lane;
+  }
+  _toggleMod(id) {
+    if (!MODS[id]) return;
+    if (this.mods.has(id)) this.mods.delete(id);
+    else this.mods.add(id);
+    this._saveSettings();
+    // 若在游戏中，HIDE/FLIP 立即刷新可见性/布局
+    this._applyModVisual();
+    this._updateModHud();
+  }
+
   _onKeyPress(lane) {
     if (this.state !== 'playing') return;
 
-    const win = getJudgeWindows(this.judgeTier);
+    const win = this._getEffectiveWindow();
     const songTime = (this.audio.currentTime - this.songStartAudio) * 1000 - this.offset;
     // Adjust hit window: larger offset = notes judged earlier (more tolerant)
     let bestNote = null, bestDist = Infinity;
+    const effLane = this.fromDisplayLane(lane);
     for (const note of this.notes) {
-      if (note.lane !== lane || note.hit || note.missed) continue;
+      if (note.lane !== effLane || note.hit || note.missed) continue;
       if (note.isHold && note.holding) continue; // 正在按住的长按音符不可重复命中
       const dist = Math.abs(songTime - note.time);
       if (dist < win.good && dist < bestDist) { bestDist = dist; bestNote = note; }
@@ -738,7 +796,42 @@ class GameEngine {
     const st = document.getElementById('settings-status');
     if (st) {
       const tierName = JUDGE_TIERS[this.judgeTier].name;
-      st.textContent = `倍速 ${SPEED_LEVELS[this.speedLevel].toFixed(2)}x  ·  判定 ${tierName}  ·  偏移 ${this.offset >= 0 ? '+' : ''}${this.offset}ms`;
+      const modStr = this.mods.size ? '  ·  Mod: ' + [...this.mods].map(id => MODS[id].label).join('/') : '';
+      st.textContent = `倍速 ${SPEED_LEVELS[this.speedLevel].toFixed(2)}x  ·  判定 ${tierName}  ·  偏移 ${this.offset >= 0 ? '+' : ''}${this.offset}ms${modStr}`;
+    }
+    this._updateModHud();
+  }
+
+  // ---- Mod 视觉 / HUD ----
+  // 切换 Mod 后刷新已有音符的可见性与布局（HIDE 隐藏、FLIP 显示位置）
+  _applyModVisual() {
+    // 已生成的音符：HIDE 需要重新设置可见性；FLIP 显示位置在 _loop 中实时计算，无需手动改
+    if (!this.notes) return;
+    const hide = this.mods.has('HIDE');
+    for (const note of this.notes) {
+      if (!note.useEl) continue;
+      note.useEl.setAttribute('opacity', hide ? '0' : '1');
+      if (note.holdBodyEl && !note.hit) {
+        note.holdBodyEl.setAttribute('opacity', hide ? '0' : String(HOLD_BODY_ALPHA));
+      }
+    }
+  }
+  // 更新标题界面 Mod HUD（显示当前激活 Mod 及其说明）
+  _updateModHud() {
+    const hud = document.getElementById('mod-status');
+    if (!hud) return;
+    const active = [...this.mods];
+    if (active.length === 0) {
+      hud.textContent = 'Mod: 无';
+      hud.classList.remove('mod-active');
+      hud.classList.add('mod-inactive');
+    } else {
+      hud.textContent = 'Mod: ' + active.map(id => {
+        const key = Object.keys(MOD_ID_BY_KEY).find(k => MOD_ID_BY_KEY[k] === id) || '';
+        return MODS[id].label + '(按' + key.replace('Digit', '') + ')';
+      }).join(' · ');
+      hud.classList.remove('mod-inactive');
+      hud.classList.add('mod-active');
     }
   }
 
@@ -906,9 +999,10 @@ class GameEngine {
     this._pulseBackground(visTime);
 
     // Spawn notes
+    const effSpeed = this._effectiveNoteSpeed();
     while (this.spawnedUpTo + 1 < this.beatmap.length) {
       const next = this.beatmap[this.spawnedUpTo + 1];
-      const noteScreenX = HIT_X + (next.time - songTime) * this.noteSpeed;
+      const noteScreenX = HIT_X + (next.time - songTime) * effSpeed;
       if (noteScreenX <= SPAWN_X) {
         this.spawnedUpTo++;
         this._spawnNote(next);
@@ -922,9 +1016,9 @@ class GameEngine {
     const toRemove = [];
     for (let i = 0; i < this.notes.length; i++) {
       const note = this.notes[i];
-      const x = HIT_X + (note.time - songTime) * this.noteSpeed;
+      const x = HIT_X + (note.time - songTime) * effSpeed;
       const scale = note._hitAnimated ? ' scale(1.3)' : '';
-      note.el.setAttribute('transform', `translate(${x},${LANE_Y[note.lane]})${scale}`);
+      note.el.setAttribute('transform', `translate(${x},${LANE_Y[this.toDisplayLane(note.lane)]})${scale}`);
       note.screenX = x;
 
       const distToHit = Math.abs(x - HIT_X);
@@ -936,7 +1030,7 @@ class GameEngine {
 
       // Miss detection（跳过正在 holding 的 Hold 音符，由下方 Hold 检测处理）
       if (this.state === 'playing' && !note.hit && !note.missed && !(note.isHold && note.holding)) {
-        const win = getJudgeWindows(this.judgeTier);
+        const win = this._getEffectiveWindow();
         if (songTime > note.time + win.good) {
           note.missed = true;
           this._animateNoteMiss(note);
@@ -954,9 +1048,9 @@ class GameEngine {
 
       // Hold 持续按住检测
       if (this.state === 'playing' && note.isHold && note.holding && !note.hit && !note.missed) {
-        const laneKey = this.keyBindings[note.lane];
+        const laneKey = this.keyBindings[this.fromDisplayLane(note.lane)];
         const stillHolding = this._keyStates[laneKey];
-        const win = getJudgeWindows(this.judgeTier);
+        const win = this._getEffectiveWindow();
 
         if (songTime >= note.holdEndTime && stillHolding) {
           // 完整按住到尾部 —— Hold 命中
@@ -993,7 +1087,7 @@ class GameEngine {
         } else if (note.holdBodyEl) {
           // 更新 body 消耗进度（命中线左侧长度按剩余按住时间消耗）
           const remain = Math.max(0, note.holdEndTime - songTime);
-          const remainLen = Math.max(0, remain * this.noteSpeed);
+          const remainLen = Math.max(0, remain * effSpeed);
           note.holdBodyEl.setAttribute('width', String(remainLen));
         }
       }
@@ -1030,11 +1124,18 @@ class GameEngine {
     const useEl = document.createElementNS('http://www.w3.org/2000/svg', 'use');
     useEl.setAttribute('href', '#note-' + beat.dnaBase);
     g.appendChild(useEl);
+    // HIDE Mod：隐藏下落音符（保留判定逻辑，凭节奏/命中线提示玩）
+    let noteHidden = false;
+    if (this.mods.has('HIDE')) {
+      noteHidden = true;
+      useEl.setAttribute('opacity', '0');
+      g.setAttribute('opacity', '0');
+    }
 
     // Hold body：长按音符在方块右侧的横向拖尾（代表按住持续时间）
     let holdBodyEl = null;
     if (beat.isHold) {
-      const bodyLen = Math.max(40, beat.durationMs * this.noteSpeed);
+      const bodyLen = Math.max(40, beat.durationMs * this._effectiveNoteSpeed());
       holdBodyEl = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
       holdBodyEl.setAttribute('x', '36');       // 方块右边缘
       holdBodyEl.setAttribute('y', '-14');      // 相对方块中心垂直居中（-28+14）
@@ -1047,6 +1148,7 @@ class GameEngine {
       holdBodyEl.setAttribute('stroke-width', '2');
       holdBodyEl.setAttribute('style', 'pointer-events:none');
       g.appendChild(holdBodyEl);
+      if (noteHidden) holdBodyEl.setAttribute('opacity', '0');
     }
 
     // Hidden miss-flash rect (shown on miss)
@@ -1058,7 +1160,7 @@ class GameEngine {
     g.appendChild(flash);
 
     const initialX = SPAWN_X + 60;
-    g.setAttribute('transform', `translate(${initialX},${LANE_Y[beat.lane]})`);
+    g.setAttribute('transform', `translate(${initialX},${LANE_Y[this.toDisplayLane(beat.lane)]})`);
     this.gNotes.appendChild(g);
 
     const noteObj = {

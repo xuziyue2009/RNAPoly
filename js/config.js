@@ -61,6 +61,22 @@ const DEFAULT_JUDGE_TIER = 2;   // NORMAL
 // ---------- Offset calibration (ms, ±) ----------
 const DEFAULT_OFFSET = 0;
 
+// ---------- Mod 系统 (Malody 借鉴) ----------
+// 速度类 Mod 同步缩放判定窗口：加速缩窗、减速放窗 —— 难度自平衡机制。
+// FLIP：镜像翻转轨道；HIDE：隐藏下落音符。
+// 每个 Mod 默认关闭，切换后存 localStorage。
+const MODS = {
+  DASH: { id: 'DASH', label: '冲刺', speedMult: 1.2,  windowMult: 5/6,  desc: '+20%速 · 窗口×5/6' },
+  RUSH: { id: 'RUSH', label: '狂暴', speedMult: 1.5,  windowMult: 2/3,  desc: '+50%速 · 窗口×2/3' },
+  SLOW: { id: 'SLOW', label: '慢速', speedMult: 0.8,  windowMult: 1.25, desc: '-20%速 · 窗口×1.25' },
+  FLIP: { id: 'FLIP', label: '镜像', mirror: true,   desc: '轨道左右翻转' },
+  HIDE: { id: 'HIDE', label: '隐藏', hideNotes: true, desc: '隐藏下落音符' },
+};
+const MOD_ID_BY_KEY = {
+  Digit1: 'DASH', Digit2: 'RUSH', Digit3: 'SLOW',
+  Digit4: 'FLIP', Digit5: 'HIDE',
+};
+
 // ---------- Hold (长按) 机制 ----------
 // Malody 长按：按下 head 并持续按住到 tail 才算完整命中；中途松开断 combo。
 const HOLD_MIN_MS = 400;        // duration 达到此值视为长按音符 (Hold)
